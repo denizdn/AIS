@@ -1,0 +1,67 @@
+
+import pandas as pd
+from rapidfuzz import process as rapid_process
+
+kunde = pd.read_excel("Kundendatei.xlsx")
+beispiel = pd.read_excel("Beispielobjekte.xlsx")
+katalog = pd.read_excel("EP_Katalog.xlsx")
+
+
+beispiel["Anlage_ErstesWort"] = beispiel["Anlagenname"].astype(str).str.split().str[0]
+
+building_to_keywords = (
+    beispiel.groupby("Anlage_ErstesWort")["Gebäude-ID"]
+        .apply(set)
+        .to_dict()
+)
+
+
+common_Anlagen ={dd for dd, anlageCOunt in building_to_keywords.items() if len(anlageCOunt) >= 3}
+
+
+kunde["Anlage_ErstesWort"] = kunde["EQ-Klasse-Bezeichnung"].astype(str).str.split().str[0]
+
+gebaudeNum = kunde["WirtEinh"].unique()
+missingAnlagen = []
+
+for geb_id in gebaudeNum:
+    gruppe = kunde[kunde["WirtEinh"] == geb_id]
+    vorhandene_keywords = set(gruppe["EQ-Klasse-Bezeichnung"])
+
+    fehlende_keywords = common_Anlagen - vorhandene_keywords  # eksik olanlar
+
+    for fehlend in fehlende_keywords:
+        missingAnlagen.append({"Gebäude-ID": geb_id, "missing Anlage": fehlend})
+
+result = pd.DataFrame(missingAnlagen)
+
+# print(result)
+result.to_excel("Missing_Anlagen.xlsx", index=False)
+
+artikelListe = katalog["Kurztext / Bezeichnung"].astype(str).tolist()
+katalogValid = katalog.dropna(subset=["Artikelnummer"])
+
+
+zuordnungen = []
+
+for idx, row in kunde.iterrows():
+    eq_name = str(row["Anlagenausprägung"])
+    gebaeude_id = row["WirtEinh"]
+
+    match = rapid_process.extractOne(eq_name, artikelListe)
+    if match:
+        bester_treffer, score, _ = match
+        artikelnummer = katalog[katalog["Kurztext / Bezeichnung"] == bester_treffer]["Artikelnummer"].values[0]
+
+        zuordnungen.append({
+            "WirtEinh": gebaeude_id,
+            "Anlagenausprägung": eq_name,
+            "Gematchter EP-Artikel": bester_treffer,
+            "Artikelnummer": artikelnummer,
+            "Match Score": score
+        })
+
+
+zuordnung = pd.DataFrame(zuordnungen)
+# print(zuordnung)
+zuordnung.to_excel("EP_Zuordnung_Artikel.xlsx", index=False)
